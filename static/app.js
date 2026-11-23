@@ -15,6 +15,7 @@ import { renderBrainLibrariesTab, setupBrainLibrariesTab } from './views/brain_l
 import { renderContextPresetsTab, setupContextPresetsTab } from './views/context_presets.js';
 import { renderSettingsTab } from './views/settings.js';
 import { drainSaveQueue } from './save_queue.js';
+import { installPinnacle } from './pinnacle.js';
 
 
 /* ---------- Boot ---------- */
@@ -106,6 +107,7 @@ async function boot() {
   setupTabs();
   installRouter();
   render();
+  installPinnacle();
   // Background-fetch the lists that weren't required for first paint.
   // The chat-list pane / detail editors stay responsive — they read
   // ``state.{kind}`` and re-render when the background fetch lands.

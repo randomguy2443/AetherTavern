@@ -24,6 +24,7 @@ import { mountLibraryCascade } from './brain_libraries.js';
 import { TTSPlayer, primeAudioSession } from '../tts_player.js';
 import { shouldAutoplayTTS, resolveTTSConfig, stripForTTS } from '../tts_helpers.js';
 import { playNotification } from '../notification.js';
+import { readingRoomPreface } from '../pinnacle.js';
 
 
 /* ---------- per-chat input drafts (localStorage) ----------
@@ -4573,9 +4574,10 @@ function emptyState() {
     );
   }
   return el('div', { class: 'content-empty' },
-    el('div', {},
+    el('div', { class: 'reading-room' },
+      ...readingRoomPreface(),
       el('h3', {}, 'Pick a chat — or start a new one'),
-      el('div', {}, 'Your conversations live in the column on the left.'),
+      el('div', { class: 'reading-lead' }, 'Your conversations live in the column on the left.'),
       el('div', { class: 'fiction-warning' },
         'Remember, everything here is strictly fictional roleplay created by ' +
         'a hallucination generator. Only an utter fool would believe anything ' +
@@ -4583,6 +4585,7 @@ function emptyState() {
       ),
       el('div', { class: 'shortcut-list' },
         el('div', { class: 'shortcut-title' }, 'Keyboard shortcuts'),
+        row(['Ctrl', 'K'],        'Command palette — jump, create, or change theme'),
         row(['Enter'],            'Send — or edit the selection on empty input'),
         row(['Ctrl', 'Enter'],    'Insert a newline'),
         row(['Alt', 'Enter'],     'Impersonate — the model writes your next message'),
