@@ -6,7 +6,7 @@
  */
 
 import { api } from './api.js';
-import { state, setState, subscribe } from './state.js';
+import { setChatInMap, setState, state, subscribe } from './state.js';
 import { el } from './util.js';
 import { toast } from './ui.js';
 import { THEMES } from './constants.js';
@@ -21,7 +21,14 @@ let _installed = false;
 let _open = false;
 let _items = [];
 let _active = 0;
+let _query = '';
 let _laying = false;
+// Full flat chat list for palette rows. The sidebar writes its paged,
+// filtered slice onto ``state.chats`` (sparse while pages are in flight),
+// so the palette must not read that array. ``null`` until the open-time
+// fetch settles; never written back into ``state.chats``.
+let _chatCatalog = null;
+let _chatCatalogGen = 0;
 
 
 export function installPinnacle() {
@@ -51,6 +58,13 @@ export function sessionSnapshot(settings) {
       const active = (cfg.custom_providers || []).find(p => p.id === cfg.active_id);
       model = (active && active.model_id) || '';
       ready = !!(active && active.api_token_indicator === TOKEN_SET);
+    } else if (kind === 'novelai') {
+      const cfg = generic.novelai || {};
+      model = cfg.model_id || '';
+      // Generic NovelAI shares the AetherRoom token. OpenRouter, NanoGPT,
+      // and OpenAI-compatible providers do not.
+      ready = cfg.api_token_indicator === TOKEN_SET
+        || settings.api_token_indicator === TOKEN_SET;
     } else if (kind && generic[kind] && typeof generic[kind] === 'object') {
       model = generic[kind].model_id || '';
       ready = generic[kind].api_token_indicator === TOKEN_SET;
@@ -286,6 +300,40 @@ async function applyTheme(id) {
 
 /* ---------- Palette ---------- */
 
+function denseChats(list) {
+  const out = [];
+  const src = list || [];
+  for (let i = 0; i < src.length; i += 1) {
+    const chat = src[i];
+    if (chat != null) out.push(chat);
+  }
+  return out;
+}
+
+function paletteChats() {
+  if (_chatCatalog == null) return [];
+  return denseChats(_chatCatalog);
+}
+
+function rerenderPalette() {
+  if (!_open) return;
+  const input = document.getElementById('pinnacle-palette-input');
+  renderList(input ? input.value : _query);
+}
+
+function loadChatCatalog() {
+  const generation = ++_chatCatalogGen;
+  api.listChats().then((chats) => {
+    if (generation !== _chatCatalogGen) return;
+    _chatCatalog = Array.isArray(chats) ? chats : denseChats(state.chats);
+    rerenderPalette();
+  }).catch(() => {
+    if (generation !== _chatCatalogGen) return;
+    _chatCatalog = denseChats(state.chats);
+    rerenderPalette();
+  });
+}
+
 function catalog() {
   const items = [];
   const push = (item) => items.push(item);
@@ -326,7 +374,8 @@ function catalog() {
     keywords: 'create start conversation',
     run: () => openNewChatWizard(),
   });
-  if (needsTable() || (state.chats || []).length === 0) {
+  const chats = paletteChats();
+  if (needsTable() || (_chatCatalog != null && chats.length === 0)) {
     push({
       kind: 'command', group: 'Do', label: 'Lay the first table',
       hint: 'Create a keeper, a guest, a taproom, and open the chat',
@@ -367,7 +416,7 @@ function catalog() {
     });
   }
 
-  (state.chats || []).forEach((chat, index) => {
+  chats.forEach((chat, index) => {
     const contact = (state.contacts || []).find(c => c.id === chat.contact_id);
     push({
       kind: 'chat', group: 'Chats', rank: index,
@@ -375,6 +424,10 @@ function catalog() {
       hint: contact ? contact.name : 'Open chat',
       keywords: `${chat.title || ''} ${contact ? contact.name : ''}`,
       run: () => {
+        // The sidebar's filtered ``state.chats`` may not contain this row.
+        // Park the summary in chatMap so the chat pane can open it without
+        // replacing the list the sidebar is paging.
+        setChatInMap(chat.id, chat);
         goTab('chats');
         setState({ activeTab: 'chats', activeChatId: chat.id, sidebarCollapsed: false });
         try { localStorage.setItem('sidebarCollapsed', '0'); } catch { /* ignore */ }
@@ -484,6 +537,7 @@ export function openPalette() {
     renderList('');
     input.focus();
   }
+  loadChatCatalog();
 }
 
 export function closePalette() {
@@ -498,6 +552,10 @@ function renderList(query) {
   const list = document.getElementById('pinnacle-palette-list');
   const input = document.getElementById('pinnacle-palette-input');
   if (!list) return;
+  if (query !== _query) {
+    _query = query;
+    _active = 0;
+  }
   _items = visibleItems(query);
   _active = Math.min(_active, Math.max(_items.length - 1, 0));
   if (!_items.length) {
@@ -518,6 +576,7 @@ function renderList(query) {
       id,
       class: `pinnacle-option${index === _active ? ' active' : ''}`,
       role: 'option',
+      tabIndex: -1,
       'aria-selected': index === _active ? 'true' : 'false',
       onMouseMove: () => {
         if (_active !== index) {
